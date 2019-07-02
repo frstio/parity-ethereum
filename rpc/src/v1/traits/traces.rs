@@ -44,6 +44,10 @@ pub trait Traces {
 	#[rpc(name = "trace_block")]
 	fn block_traces(&self, BlockNumber) -> Result<Option<Vec<LocalizedTrace>>>;
 
+	/// Returns all traces produced at given block by hash.
+	#[rpc(name = "trace_blockByBlockHash")]
+	fn block_traces_by_block_hash(&self, H256) -> Result<Option<Vec<LocalizedTrace>>>;
+
 	/// Executes the given call and returns a number of possible traces for it.
 	#[rpc(name = "trace_call")]
 	fn call(&self, CallRequest, TraceOptions, Option<BlockNumber>) -> Result<TraceResults>;
@@ -63,4 +67,8 @@ pub trait Traces {
 	/// Executes all the transactions at the given block and returns a number of possible traces for each transaction.
 	#[rpc(name = "trace_replayBlockTransactions")]
 	fn replay_block_transactions(&self, BlockNumber, TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>>;
+
+	/// Executes all the transactions at the given block via block hash and returns a number of possible traces for each transaction.
+	#[rpc(name = "trace_replayBlockTransactionsByHash")]
+	fn replay_block_transactions_by_block_hash(&self, H256, TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>>;
 }

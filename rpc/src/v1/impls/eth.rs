@@ -950,6 +950,31 @@ impl<C, SN: ?Sized, S: ?Sized, M, EM, T: StateInfo + 'static> Eth for EthClient<
 		))
 	}
 
+	fn call_by_block_hash(&self, request: CallRequest, hash: Option<H256>) -> BoxFuture<Bytes> {
+		let request = CallRequest::into(request);
+		let signed = try_bf!(fake_sign::sign_call(request));
+
+		let hash = hash.unwrap_or_default();
+
+		let id = BlockId::Hash(hash);
+
+		let mut state = try_bf!(self.client.state_at(id).ok_or_else(errors::state_pruned));
+		let header = try_bf!(self.client.block_header(id).ok_or_else(errors::state_pruned).and_then(|h| h.decode().map_err(errors::decode)));
+
+		let result = self.client.call(&signed, Default::default(), &mut state, &header);
+
+		Box::new(future::done(result
+			.map_err(errors::call)
+			.and_then(|executed| {
+				match executed.exception {
+					Some(ref exception) => Err(errors::vm(exception, &executed.output)),
+					None => Ok(executed)
+				}
+			})
+			.map(|b| b.output.into())
+		))
+	}
+
 	fn estimate_gas(&self, request: CallRequest, num: Option<BlockNumber>) -> BoxFuture<U256> {
 		let request = CallRequest::into(request);
 		let signed = try_bf!(fake_sign::sign_call(request));

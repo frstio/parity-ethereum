@@ -39,6 +39,10 @@ impl Traces for TracesClient {
 		Err(errors::light_unimplemented(None))
 	}
 
+	fn block_traces_by_block_hash(&self, _block_hash: H256) -> Result<Option<Vec<LocalizedTrace>>> {
+		Err(errors::light_unimplemented(None))
+	}
+
 	fn transaction_traces(&self, _transaction_hash: H256) -> Result<Option<Vec<LocalizedTrace>>> {
 		Err(errors::light_unimplemented(None))
 	}
@@ -64,6 +68,10 @@ impl Traces for TracesClient {
 	}
 
 	fn replay_block_transactions(&self,  _block_number: BlockNumber, _flags: TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>> {
+		Err(errors::light_unimplemented(None))
+	}
+
+	fn replay_block_transactions_by_block_hash(&self,  _hash: H256, _flags: TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>> {
 		Err(errors::light_unimplemented(None))
 	}
 }

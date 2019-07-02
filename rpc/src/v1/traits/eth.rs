@@ -122,6 +122,10 @@ pub trait Eth {
 	#[rpc(name = "eth_call")]
 	fn call(&self, CallRequest, Option<BlockNumber>) -> BoxFuture<Bytes>;
 
+	/// Call contract, returning the output data.
+	#[rpc(name = "eth_callByBlockHash")]
+	fn call_by_block_hash(&self, CallRequest, Option<H256>) -> BoxFuture<Bytes>;
+
 	/// Estimate gas needed for execution of given contract.
 	#[rpc(name = "eth_estimateGas")]
 	fn estimate_gas(&self, CallRequest, Option<BlockNumber>) -> BoxFuture<U256>;

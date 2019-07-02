@@ -409,6 +409,10 @@ where
 		}))
 	}
 
+	fn call_by_block_hash(&self, _req: CallRequest, _hash: Option<H256>) -> BoxFuture<Bytes> {
+		Box::new(future::err(errors::unimplemented(None)))
+	}
+
 	fn estimate_gas(&self, req: CallRequest, num: Option<BlockNumber>) -> BoxFuture<U256> {
 		// TODO: binary chop for more accurate estimates.
 		Box::new(self.fetcher().proved_read_only_execution(req, num, self.transaction_queue.clone()).and_then(|res| {

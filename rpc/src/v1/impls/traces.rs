@@ -73,6 +73,11 @@ impl<C, S> Traces for TracesClient<C> where
 			.map(|traces| traces.into_iter().map(LocalizedTrace::from).collect()))
 	}
 
+	fn block_traces_by_block_hash(&self, block_hash: H256) -> Result<Option<Vec<LocalizedTrace>>> {
+		Ok(self.client.block_traces(BlockId::Hash(block_hash))
+			.map(|traces| traces.into_iter().map(LocalizedTrace::from).collect()))
+	}
+
 	fn transaction_traces(&self, transaction_hash: H256) -> Result<Option<Vec<LocalizedTrace>>> {
 		Ok(self.client.transaction_traces(TransactionId::Hash(transaction_hash))
 			.map(|traces| traces.into_iter().map(LocalizedTrace::from).collect()))
@@ -175,6 +180,12 @@ impl<C, S> Traces for TracesClient<C> where
 		};
 
 		self.client.replay_block_transactions(id, to_call_analytics(flags))
+			.map(|results| results.map(TraceResultsWithTransactionHash::from).collect())
+			.map_err(errors::call)
+	}
+
+	fn replay_block_transactions_by_block_hash(&self, hash: H256, flags: TraceOptions) -> Result<Vec<TraceResultsWithTransactionHash>> {
+		self.client.replay_block_transactions(BlockId::Hash(hash), to_call_analytics(flags))
 			.map(|results| results.map(TraceResultsWithTransactionHash::from).collect())
 			.map_err(errors::call)
 	}

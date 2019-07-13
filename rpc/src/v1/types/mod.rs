@@ -45,6 +45,7 @@ mod transaction_condition;
 mod work;
 mod private_receipt;
 mod eip191;
+mod combined_block;
 
 pub mod pubsub;
 
@@ -80,6 +81,7 @@ pub use self::transaction_request::TransactionRequest;
 pub use self::transaction_condition::TransactionCondition;
 pub use self::work::Work;
 pub use self::private_receipt::{PrivateTransactionReceipt, PrivateTransactionReceiptAndTransaction};
+pub use self::combined_block::CombinedBlock;
 
 // TODO [ToDr] Refactor to a proper type Vec of enums?
 /// Expected tracing type.

@@ -44,7 +44,8 @@ use v1::helpers::light_fetch::{self, LightFetch};
 use v1::traits::Eth;
 use v1::types::{
 	RichBlock, Block, BlockTransactions, BlockNumber, LightBlockNumber, Bytes, SyncStatus as RpcSyncStatus,
-	SyncInfo as RpcSyncInfo, Transaction, CallRequest, Index, Filter, Log, Receipt, Work, EthAccount
+	SyncInfo as RpcSyncInfo, Transaction, CallRequest, Index, Filter, Log, Receipt, Work, EthAccount,
+	CombinedBlock
 };
 use v1::metadata::Metadata;
 
@@ -410,6 +411,10 @@ where
 	}
 
 	fn call_by_block_hash(&self, _req: CallRequest, _hash: Option<H256>) -> BoxFuture<Bytes> {
+		Box::new(future::err(errors::unimplemented(None)))
+	}
+
+	fn combined_block_by_hash(&self, _hash: Option<H256>) -> BoxFuture<CombinedBlock> {
 		Box::new(future::err(errors::unimplemented(None)))
 	}
 

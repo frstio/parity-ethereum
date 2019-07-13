@@ -19,7 +19,7 @@ use jsonrpc_core::{Result, BoxFuture};
 use jsonrpc_derive::rpc;
 use ethereum_types::{H64, H160, H256, U64, U256};
 
-use v1::types::{RichBlock, BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, EthAccount};
+use v1::types::{RichBlock, BlockNumber, Bytes, CallRequest, Filter, FilterChanges, Index, EthAccount, CombinedBlock};
 use v1::types::{Log, Receipt, SyncStatus, Transaction, Work};
 
 /// Eth rpc interface.
@@ -125,6 +125,10 @@ pub trait Eth {
 	/// Call contract, returning the output data.
 	#[rpc(name = "eth_callByBlockHash")]
 	fn call_by_block_hash(&self, CallRequest, Option<H256>) -> BoxFuture<Bytes>;
+
+	/// Get block, transactions receipts, uncles and logs by block hash
+	#[rpc(name = "eth_getCombinedBlockByHash")]
+	fn combined_block_by_hash(&self, Option<H256>) -> BoxFuture<CombinedBlock>;
 
 	/// Estimate gas needed for execution of given contract.
 	#[rpc(name = "eth_estimateGas")]

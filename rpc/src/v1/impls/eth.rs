@@ -977,19 +977,22 @@ impl<C, SN: ?Sized, S: ?Sized, M, EM, T: StateInfo + 'static> Eth for EthClient<
 	}
 
 	fn combined_block_by_hash(&self, hash: Option<H256>) -> BoxFuture<CombinedBlock> {
-		let hash = hash.unwrap_or_default();
+		let hash: H256 = match hash {
+			Some(h256) => h256,
+			_ => return Box::new(future::err(errors::internal("Failed to parse hash", hash))),
+		};
 
 		// Block
 		let block: RichBlock = match try_bf!(
-				self.rich_block(BlockId::Hash(hash).into(), true).and_then(errors::check_block_gap(&*self.client, self.options))
+				self.rich_block(BlockId::Hash(hash).into(), true)
 		) {
 			Some(rich_block) => rich_block,
 			_ => return Box::new(future::err(errors::internal("Failed to get block", hash))),
 		};
 
 		// Logs
-		let log_filter = EthcoreFilter { from_block: BlockId::Hash(hash), to_block: BlockId::Hash(hash), address: None, topics: vec![], limit: None };
-		let logs = match self.client.logs(log_filter.clone()) {
+		let log_filter: EthcoreFilter = EthcoreFilter { from_block: BlockId::Hash(hash), to_block: BlockId::Hash(hash), address: None, topics: vec![None, None, None, None], limit: None };
+		let logs: Vec<Log> = match self.client.logs(log_filter.clone()) {
 			Ok(logs) => logs
 				.into_iter()
 				.map(From::from)
@@ -999,19 +1002,20 @@ impl<C, SN: ?Sized, S: ?Sized, M, EM, T: StateInfo + 'static> Eth for EthClient<
 
 		// Uncles
 		let mut uncles: Vec<H256> = vec![];
-		let uncle_count: usize = match try_bf!(Ok(self.client.block(BlockId::Hash(hash)).map(|block| block.uncles_count())).and_then(errors::check_block_gap(&*self.client, self.options))) {
+		let uncle_count: usize = match self.client.block(BlockId::Hash(hash)).map(|block| block.uncles_count()) {
 			Some(value) => value,
 			None => return Box::new(future::err(errors::internal("Failed to get uncle count", hash)))
 		};
 		for uncle_idx in 0..uncle_count {
-			let uncle_result = try_bf!(
-					self.uncle(
+			let uncle_result: Option<RichBlock> = match self.uncle(
 						PendingUncleId {
 							id: PendingOrBlock::Block(BlockId::Hash(hash)),
 							position: uncle_idx
 						}
-					).and_then(errors::check_block_gap(&*self.client, self.options))
-				);
+					) {
+						Ok(value) => value,
+						_ => return Box::new(future::err(errors::internal(&format!("Failed to get uncle with index {}", uncle_idx), hash)))
+					};
 
 			match uncle_result {
 				Some(uncle) => match uncle.inner.hash {
@@ -1023,13 +1027,11 @@ impl<C, SN: ?Sized, S: ?Sized, M, EM, T: StateInfo + 'static> Eth for EthClient<
 		}
 
 		// Transaction Receipts
-		let mut tx_receipts = vec![];
+		let mut tx_receipts: Vec<Receipt> = vec![];
 		if let BlockTransactions::Full(txs) = &block.inner.transactions {
 			for tx in txs.iter() {
-				let receipt = self.client.transaction_receipt(TransactionId::Hash(tx.hash));
-				let result = try_bf!(Ok(receipt.map(Into::into))
-					.and_then(errors::check_block_gap(&*self.client, self.options)));
-				match result {
+				let receipt: Option<Receipt> = self.client.transaction_receipt(TransactionId::Hash(tx.hash)).map(Into::into);
+				match receipt {
 					Some(tx_receipt) => tx_receipts.push(tx_receipt),
 					_ => return Box::new(future::err(errors::internal(&format!("Failed to get transaction receipts for tx {:?}", tx.hash), hash)))
 				};

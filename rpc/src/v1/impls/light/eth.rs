@@ -292,6 +292,10 @@ where
 			.map(|acc| acc.map_or(0.into(), |a| a.balance)))
 	}
 
+	fn balance_by_hash(&self, _address: H160, _hash: Option<H256>) -> BoxFuture<U256> {
+		Box::new(future::err(errors::unimplemented(None)))
+	}
+
 	fn storage_at(&self, _address: H160, _key: U256, _num: Option<BlockNumber>) -> BoxFuture<H256> {
 		Box::new(future::err(errors::unimplemented(None)))
 	}

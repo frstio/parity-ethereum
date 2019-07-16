@@ -70,6 +70,10 @@ pub trait Eth {
 	#[rpc(name = "eth_getBalance")]
 	fn balance(&self, H160, Option<BlockNumber>) -> BoxFuture<U256>;
 
+	/// Returns balance of the given account by block hash.
+	#[rpc(name = "eth_getBalanceByHash")]
+	fn balance_by_hash(&self, H160, Option<H256>) -> BoxFuture<U256>;
+
 	/// Returns the account- and storage-values of the specified account including the Merkle-proof
 	#[rpc(name = "eth_getProof")]
 	fn proof(&self, H160, Vec<H256>, Option<BlockNumber>) -> BoxFuture<EthAccount>;

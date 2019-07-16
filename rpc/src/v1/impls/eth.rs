@@ -583,6 +583,17 @@ impl<C, SN: ?Sized, S: ?Sized, M, EM, T: StateInfo + 'static> Eth for EthClient<
 		Box::new(future::done(res))
 	}
 
+	fn balance_by_hash(&self, address: H160, hash: Option<H256>) -> BoxFuture<U256> {
+		let hash = hash.unwrap_or_default();
+
+		let res = match self.client.balance(&address, StateOrBlock::Block(BlockId::Hash(hash))) {
+			Some(balance) => Ok(balance),
+			None => Err(errors::state_pruned()),
+		};
+
+		Box::new(future::done(res))
+	}
+
 	fn proof(&self, address: H160, values: Vec<H256>, num: Option<BlockNumber>) -> BoxFuture<EthAccount> {
 		try_bf!(errors::require_experimental(self.options.allow_experimental_rpcs, "1186"));
 

@@ -70,5 +70,5 @@ pub trait Traces {
 
 	/// Executes all the transactions at the given block via block hash and returns a number of possible traces for each transaction.
 	#[rpc(name = "trace_replayBlockTransactionsByHash")]
-	fn replay_block_transactions_by_block_hash(&self, H256, TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>>;
+	fn replay_block_transactions_by_block_hash(&self, _: H256, _: TraceOptions) ->  Result<Vec<TraceResultsWithTransactionHash>>;
 }

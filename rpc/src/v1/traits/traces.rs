@@ -46,7 +46,7 @@ pub trait Traces {
 
 	/// Returns all traces produced at given block by hash.
 	#[rpc(name = "trace_blockByBlockHash")]
-	fn block_traces_by_block_hash(&self, H256) -> Result<Option<Vec<LocalizedTrace>>>;
+	fn block_traces_by_block_hash(&self, _: H256) -> Result<Option<Vec<LocalizedTrace>>>;
 
 	/// Executes the given call and returns a number of possible traces for it.
 	#[rpc(name = "trace_call")]

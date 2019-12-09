@@ -17,6 +17,7 @@
 //! Parameters for a block chain.
 
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
@@ -65,7 +66,7 @@ fn fmt_err<F: ::std::fmt::Display>(f: F) -> String {
 /// we define a "bugfix" hard fork as any hard fork which
 /// you would put on-by-default in a new chain.
 #[derive(Debug, PartialEq, Default)]
-#[cfg_attr(test, derive(Clone))]
+#[cfg_attr(any(test, feature = "test-helpers"), derive(Clone))]
 pub struct CommonParams {
 	/// Account start nonce.
 	pub account_start_nonce: U256,
@@ -121,8 +122,18 @@ pub struct CommonParams {
 	pub eip1283_transition: BlockNumber,
 	/// Number of first block where EIP-1283 rules end.
 	pub eip1283_disable_transition: BlockNumber,
+	/// Number of first block where EIP-1283 rules re-enabled.
+	pub eip1283_reenable_transition: BlockNumber,
 	/// Number of first block where EIP-1014 rules begin.
 	pub eip1014_transition: BlockNumber,
+	/// Number of first block where EIP-1706 rules begin.
+	pub eip1706_transition: BlockNumber,
+	/// Number of first block where EIP-1344 rules begin: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1344.md
+	pub eip1344_transition: BlockNumber,
+	/// Number of first block where EIP-1884 rules begin:https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1884.md
+	pub eip1884_transition: BlockNumber,
+	/// Number of first block where EIP-2028 rules begin.
+	pub eip2028_transition: BlockNumber,
 	/// Number of first block where dust cleanup rules (EIP-168 and EIP169) begin.
 	pub dust_protection_transition: BlockNumber,
 	/// Nonce cap increase per block. Nonce cap is only checked if dust protection is enabled.
@@ -189,7 +200,22 @@ impl CommonParams {
 		schedule.have_return_data = block_number >= self.eip211_transition;
 		schedule.have_bitwise_shifting = block_number >= self.eip145_transition;
 		schedule.have_extcodehash = block_number >= self.eip1052_transition;
-		schedule.eip1283 = block_number >= self.eip1283_transition && !(block_number >= self.eip1283_disable_transition);
+		schedule.have_chain_id = block_number >= self.eip1344_transition;
+		schedule.eip1283 =
+			(block_number >= self.eip1283_transition &&
+			!(block_number >= self.eip1283_disable_transition)) ||
+			block_number >= self.eip1283_reenable_transition;
+		schedule.eip1706 = block_number >= self.eip1706_transition;
+
+		if block_number >= self.eip1884_transition {
+			schedule.have_selfbalance = true;
+			schedule.sload_gas = 800;
+			schedule.balance_gas = 700;
+			schedule.extcodehash_gas = 700;
+		}
+		if block_number >= self.eip2028_transition {
+			schedule.tx_data_non_zero_gas = 16;
+		}
 		if block_number >= self.eip210_transition {
 			schedule.blockhash_gas = 800;
 		}
@@ -304,7 +330,27 @@ impl From<ethjson::spec::Params> for CommonParams {
 				BlockNumber::max_value,
 				Into::into,
 			),
+			eip1283_reenable_transition: p.eip1283_reenable_transition.map_or_else(
+				BlockNumber::max_value,
+				Into::into,
+			),
+			eip1706_transition: p.eip1706_transition.map_or_else(
+				BlockNumber::max_value,
+				Into::into,
+			),
 			eip1014_transition: p.eip1014_transition.map_or_else(
+				BlockNumber::max_value,
+				Into::into,
+			),
+			eip1344_transition: p.eip1344_transition.map_or_else(
+				BlockNumber::max_value,
+				Into::into,
+			),
+			eip1884_transition: p.eip1884_transition.map_or_else(
+				BlockNumber::max_value,
+				Into::into,
+			),
+			eip2028_transition: p.eip2028_transition.map_or_else(
 				BlockNumber::max_value,
 				Into::into,
 			),
@@ -489,19 +535,28 @@ impl From<SpecHardcodedSync> for ethjson::spec::HardcodedSync {
 }
 
 fn load_machine_from(s: ethjson::spec::Spec) -> EthereumMachine {
-	let builtins = s.accounts.builtins().into_iter().map(|p| (p.0.into(), From::from(p.1))).collect();
+	let builtins = s.accounts.builtins().into_iter().map(|p| (p.0.into(), Builtin::try_from(p.1).expect("chain spec is invalid"))).collect();
 	let params = CommonParams::from(s.params);
 
 	Spec::machine(&s.engine, params, builtins)
 }
 
+fn convert_json_to_spec(
+	(address, builtin): (ethjson::hash::Address, ethjson::spec::builtin::Builtin),
+) -> Result<(Address, Builtin), Error> {
+	let builtin = Builtin::try_from(builtin)?;
+	Ok((address.into(), builtin))
+}
+
 /// Load from JSON object.
 fn load_from(spec_params: SpecParams, s: ethjson::spec::Spec) -> Result<Spec, Error> {
-	let builtins = s.accounts
+	let builtins: Result<BTreeMap<Address, Builtin>, _> = s
+		.accounts
 		.builtins()
 		.into_iter()
-		.map(|p| (p.0.into(), From::from(p.1)))
+		.map(convert_json_to_spec)
 		.collect();
+	let builtins = builtins?;
 	let g = Genesis::from(s.genesis);
 	let GenericSeal(seal_rlp) = g.seal.into();
 	let params = CommonParams::from(s.params);
@@ -921,6 +976,10 @@ impl Spec {
 	/// Create a new Spec which conforms to the Frontier-era Morden chain except that it's a NullEngine consensus with applying reward on block close.
 	#[cfg(any(test, feature = "test-helpers"))]
 	pub fn new_test_with_reward() -> Spec { load_bundled!("null_morden_with_reward") }
+
+	/// Create a new Spec which conforms to the Frontier-era Morden chain except that it's a NullEngine consensus with finality.
+	#[cfg(any(test, feature = "test-helpers"))]
+	pub fn new_test_with_finality() -> Spec { load_bundled!("null_morden_with_finality") }
 
 	/// Create a new Spec which is a NullEngine consensus with a premine of address whose
 	/// secret is keccak('').

@@ -57,9 +57,19 @@ pub fn new_poanet<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
 	load(params.into(), include_bytes!("../../res/ethereum/poacore.json"))
 }
 
-/// Create a new Tobalaba mainnet chain spec.
-pub fn new_tobalaba<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
-	load(params.into(), include_bytes!("../../res/ethereum/tobalaba.json"))
+/// Create a new xDai chain spec.
+pub fn new_xdai<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
+        load(params.into(), include_bytes!("../../res/ethereum/xdai.json"))
+}
+
+/// Create a new Volta mainnet chain spec.
+pub fn new_volta<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
+	load(params.into(), include_bytes!("../../res/ethereum/volta.json"))
+}
+
+/// Create a new EWC mainnet chain spec.
+pub fn new_ewc<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
+	load(params.into(), include_bytes!("../../res/ethereum/ewc.json"))
 }
 
 /// Create a new Expanse mainnet chain spec.
@@ -124,6 +134,11 @@ pub fn new_sokol<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
 	load(params.into(), include_bytes!("../../res/ethereum/poasokol.json"))
 }
 
+/// Create a new Morodor testnet chain spec.
+pub fn new_mordor<'a, T: Into<SpecParams<'a>>>(params: T) -> Spec {
+	load(params.into(), include_bytes!("../../res/ethereum/mordor.json"))
+}
+
 // For tests
 
 /// Create a new Foundation Frontier-era chain spec as though it never changes to Homestead.
@@ -156,6 +171,9 @@ pub fn new_constantinople_test() -> Spec { load(None, include_bytes!("../../res/
 /// Create a new Foundation St. Peter's (Contantinople Fix) era spec.
 pub fn new_constantinople_fix_test() -> Spec { load(None, include_bytes!("../../res/ethereum/st_peters_test.json")) }
 
+/// Create a new Foundation Istanbul era spec.
+pub fn new_istanbul_test() -> Spec { load(None, include_bytes!("../../res/ethereum/istanbul_test.json")) }
+
 /// Create a new Musicoin-MCIP3-era spec.
 pub fn new_mcip3_test() -> Spec { load(None, include_bytes!("../../res/ethereum/mcip3_test.json")) }
 
@@ -178,6 +196,9 @@ pub fn new_constantinople_test_machine() -> EthereumMachine { load_machine(inclu
 
 /// Create a new Foundation St. Peter's (Contantinople Fix) era spec.
 pub fn new_constantinople_fix_test_machine() -> EthereumMachine { load_machine(include_bytes!("../../res/ethereum/st_peters_test.json")) }
+
+/// Create a new Foundation Istanbul era spec.
+pub fn new_istanbul_test_machine() -> EthereumMachine { load_machine(include_bytes!("../../res/ethereum/istanbul_test.json")) }
 
 /// Create a new Musicoin-MCIP3-era spec.
 pub fn new_mcip3_test_machine() -> EthereumMachine { load_machine(include_bytes!("../../res/ethereum/mcip3_test.json")) }

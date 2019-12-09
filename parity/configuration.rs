@@ -16,7 +16,7 @@
 
 use std::time::Duration;
 use std::io::Read;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::collections::{HashSet, BTreeMap};
@@ -50,7 +50,8 @@ use ethcore_private_tx::{ProviderConfig, EncryptorConfig};
 use secretstore::{NodeSecretKey, Configuration as SecretStoreConfiguration, ContractAddress as SecretStoreContractAddress};
 use updater::{UpdatePolicy, UpdateFilter, ReleaseTrack};
 use run::RunCmd;
-use blockchain::{BlockchainCmd, ImportBlockchain, ExportBlockchain, KillBlockchain, ExportState, DataFormat, ResetBlockchain};
+use types::data_format::DataFormat;
+use blockchain::{BlockchainCmd, ImportBlockchain, ExportBlockchain, KillBlockchain, ExportState, ResetBlockchain};
 use export_hardcoded_sync::ExportHsyncCmd;
 use presale::ImportWallet;
 use account::{AccountCmd, NewAccount, ListAccounts, ImportAccounts, ImportFromGethAccounts};
@@ -59,6 +60,7 @@ use network::{IpFilter};
 
 const DEFAULT_MAX_PEERS: u16 = 50;
 const DEFAULT_MIN_PEERS: u16 = 25;
+pub const ETHERSCAN_ETH_PRICE_ENDPOINT: &str = "https://api.etherscan.io/api?module=stats&action=ethprice";
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -668,23 +670,30 @@ impl Configuration {
 		}
 
 		let usd_per_tx = to_price(&self.args.arg_usd_per_tx)?;
-		if "auto" == self.args.arg_usd_per_eth.as_str() {
-			return Ok(GasPricerConfig::Calibrated {
+
+		if "auto" == self.args.arg_usd_per_eth {
+			Ok(GasPricerConfig::Calibrated {
 				usd_per_tx: usd_per_tx,
 				recalibration_period: to_duration(self.args.arg_price_update_period.as_str())?,
-			});
+				api_endpoint: ETHERSCAN_ETH_PRICE_ENDPOINT.to_string(),
+			})
+		} else if let Ok(usd_per_eth_parsed) = to_price(&self.args.arg_usd_per_eth) {
+			let wei_per_gas = wei_per_gas(usd_per_tx, usd_per_eth_parsed);
+
+			info!(
+				"Using a fixed conversion rate of Ξ1 = {} ({} wei/gas)",
+				Colour::White.bold().paint(format!("US${:.2}", usd_per_eth_parsed)),
+				Colour::Yellow.bold().paint(format!("{}", wei_per_gas))
+			);
+
+			Ok(GasPricerConfig::Fixed(wei_per_gas))
+		} else {
+			Ok(GasPricerConfig::Calibrated {
+				usd_per_tx: usd_per_tx,
+				recalibration_period: to_duration(self.args.arg_price_update_period.as_str())?,
+				api_endpoint: self.args.arg_usd_per_eth.clone(),
+			})
 		}
-
-		let usd_per_eth = to_price(&self.args.arg_usd_per_eth)?;
-		let wei_per_gas = wei_per_gas(usd_per_tx, usd_per_eth);
-
-		info!(
-			"Using a fixed conversion rate of Ξ1 = {} ({} wei/gas)",
-			Colour::White.bold().paint(format!("US${:.2}", usd_per_eth)),
-			Colour::Yellow.bold().paint(format!("{}", wei_per_gas))
-		);
-
-		Ok(GasPricerConfig::Fixed(wei_per_gas))
 	}
 
 	fn extra_data(&self) -> Result<Bytes, String> {
@@ -725,9 +734,18 @@ impl Configuration {
 		let port = self.args.arg_ports_shift + self.args.arg_port;
 		let listen_address = SocketAddr::new(self.interface(&self.args.arg_interface).parse().unwrap(), port);
 		let public_address = if self.args.arg_nat.starts_with("extip:") {
-			let host = &self.args.arg_nat[6..];
-			let host = host.parse().map_err(|_| format!("Invalid host given with `--nat extip:{}`", host))?;
-			Some(SocketAddr::new(host, port))
+			let host = self.args.arg_nat[6..].split(':').next().expect("split has at least one part; qed");
+			let host = format!("{}:{}", host, port);
+			match host.to_socket_addrs() {
+				Ok(mut addr_iter) => {
+					if let Some(addr) = addr_iter.next() {
+						Some(addr)
+					} else {
+						return Err(format!("Invalid host given with `--nat extip:{}`", &self.args.arg_nat[6..]))
+					}
+				},
+				Err(_) => return Err(format!("Invalid host given with `--nat extip:{}`", &self.args.arg_nat[6..]))
+			}
 		} else {
 			None
 		};
@@ -1186,14 +1204,15 @@ mod tests {
 	use std::str::FromStr;
 
 	use tempdir::TempDir;
-	use ethcore::client::{VMType, BlockId};
+	use ethcore::client::VMType;
 	use ethcore::miner::MinerOptions;
 	use miner::pool::PrioritizationStrategy;
 	use parity_rpc::NetworkSettings;
 	use updater::{UpdatePolicy, UpdateFilter, ReleaseTrack};
-
+	use types::ids::BlockId;
+	use types::data_format::DataFormat;
 	use account::{AccountCmd, NewAccount, ImportAccounts, ListAccounts};
-	use blockchain::{BlockchainCmd, ImportBlockchain, ExportBlockchain, DataFormat, ExportState};
+	use blockchain::{BlockchainCmd, ImportBlockchain, ExportBlockchain, ExportState};
 	use cli::Args;
 	use dir::{Directories, default_hypervisor_path};
 	use helpers::{default_network_config};
@@ -1555,7 +1574,7 @@ mod tests {
 		// then
 		assert_eq!(conf.network_settings(), Ok(NetworkSettings {
 			name: "testname".to_owned(),
-			chain: "kovan".to_owned(),
+			chain: "goerli".to_owned(),
 			is_dev_chain: false,
 			network_port: 30303,
 			rpc_enabled: true,
@@ -1837,6 +1856,33 @@ mod tests {
 		assert_eq!(conf1.secretstore_config().unwrap().port, 8084);
 		assert_eq!(conf1.secretstore_config().unwrap().http_port, 8083);
 		assert_eq!(conf1.ipfs_config().port, 5002);
+	}
+
+	#[test]
+	fn should_resolve_external_nat_hosts() {
+		// Ip works
+		let conf = parse(&["parity", "--nat", "extip:1.1.1.1"]);
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().ip().to_string(), "1.1.1.1");
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().port(), 30303);
+
+		// Ip with port works, port is discarded
+		let conf = parse(&["parity", "--nat", "extip:192.168.1.1:123"]);
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().ip().to_string(), "192.168.1.1");
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().port(), 30303);
+
+		// Hostname works
+		let conf = parse(&["parity", "--nat", "extip:ethereum.org"]);
+		assert!(conf.net_addresses().unwrap().1.is_some());
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().port(), 30303);
+
+		// Hostname works, garbage at the end is discarded
+		let conf = parse(&["parity", "--nat", "extip:ethereum.org:whatever bla bla 123"]);
+		assert!(conf.net_addresses().unwrap().1.is_some());
+		assert_eq!(conf.net_addresses().unwrap().1.unwrap().port(), 30303);
+
+		// Garbage is error
+		let conf = parse(&["parity", "--nat", "extip:blabla"]);
+		assert!(conf.net_addresses().is_err());
 	}
 
 	#[test]

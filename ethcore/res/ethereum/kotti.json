@@ -13,6 +13,7 @@
 		"accountStartNonce": "0x0",
 		"chainID": "0x6",
 		"eip140Transition": "0xaef49",
+		"eip145Transition": "0x1a064d",
 		"eip150Transition": "0x0",
 		"eip155Transition": "0x0",
 		"eip160Transition": "0x0",
@@ -21,6 +22,8 @@
 		"eip211Transition": "0xaef49",
 		"eip214Transition": "0xaef49",
 		"eip658Transition": "0xaef49",
+		"eip1014Transition": "0x1a064d",
+		"eip1052Transition": "0x1a064d",
 		"gasLimitBoundDivisor": "0x400",
 		"maxCodeSize": "0x6000",
 		"maxCodeSizeTransition": "0xaef49",
@@ -116,11 +119,13 @@
 			"balance": "0x1",
 			"builtin": {
 				"name": "alt_bn128_add",
-				"activate_at": "0xaef49",
 				"pricing": {
-					"linear": {
-						"base": 500,
-						"word": 0
+					"0xaef49": {
+						"price": { "alt_bn128_const_operations": { "price": 500 }}
+					},
+					"0x7fffffffffffff": {
+						"info": "EIP 1108 transition",
+						"price": { "alt_bn128_const_operations": { "price": 150 }}
 					}
 				}
 			}
@@ -129,11 +134,13 @@
 			"balance": "0x1",
 			"builtin": {
 				"name": "alt_bn128_mul",
-				"activate_at": "0xaef49",
 				"pricing": {
-					"linear": {
-						"base": 40000,
-						"word": 0
+					"0xaef49": {
+						"price": { "alt_bn128_const_operations": { "price": 40000 }}
+					},
+					"0x7fffffffffffff": {
+						"info": "EIP 1108 transition",
+						"price": { "alt_bn128_const_operations": { "price": 6000 }}
 					}
 				}
 			}
@@ -142,11 +149,13 @@
 			"balance": "0x1",
 			"builtin": {
 				"name": "alt_bn128_pairing",
-				"activate_at": "0xaef49",
 				"pricing": {
-					"alt_bn128_pairing": {
-						"base": 100000,
-						"pair": 80000
+					"0xaef49": {
+						"price": { "alt_bn128_pairing": { "base": 100000, "pair": 80000 }}
+					},
+					"0x7fffffffffffff": {
+						"info": "EIP 1108 transition",
+						"price": { "alt_bn128_pairing": { "base": 45000, "pair": 34000 }}
 					}
 				}
 			}

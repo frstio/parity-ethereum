@@ -195,6 +195,12 @@ pub trait BlockProvider {
 		where F: Fn(&LogEntry) -> bool + Send + Sync, Self: Sized;
 }
 
+/// Interface for querying blocks with pending db transaction by hash and by number.
+trait InTransactionBlockProvider {
+	/// Get the familial details concerning a block.
+	fn uncommitted_block_details(&self, hash: &H256) -> Option<BlockDetails>;
+}
+
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 enum CacheId {
 	BlockHeader(H256),
@@ -424,6 +430,19 @@ impl BlockProvider for BlockChain {
 	}
 }
 
+impl InTransactionBlockProvider for BlockChain {
+	fn uncommitted_block_details(&self, hash: &H256) -> Option<BlockDetails> {
+		let result = self.db.key_value().read_with_two_layer_cache(
+			db::COL_EXTRA,
+			&self.pending_block_details,
+			&self.block_details,
+			hash
+		)?;
+		self.cache_man.lock().note_used(CacheId::BlockDetails(*hash));
+		Some(result)
+	}
+}
+
 /// An iterator which walks the blockchain towards the genesis.
 #[derive(Clone)]
 pub struct AncestryIter<'a> {
@@ -592,7 +611,7 @@ impl BlockChain {
 			let best_block_rlp = bc.block(&best_block_hash)
 				.expect("Best block is from a known block hash; qed");
 
-			// and write them
+			// and write them to the cache.
 			let mut best_block = bc.best_block.write();
 			*best_block = BestBlock {
 				total_difficulty: best_block_total_difficulty,
@@ -713,6 +732,10 @@ impl BlockChain {
 	///
 	/// If the tree route verges into pruned or unknown blocks,
 	/// `None` is returned.
+	///
+	/// `is_from_route_finalized` returns whether the `from` part of the
+	/// route contains a finalized block. This only holds if the two parts (from
+	/// and to) are on different branches, ie. on 2 different forks.
 	pub fn tree_route(&self, from: H256, to: H256) -> Option<TreeRoute> {
 		let mut from_branch = vec![];
 		let mut is_from_route_finalized = false;
@@ -726,9 +749,9 @@ impl BlockChain {
 		// reset from && to to the same level
 		while from_details.number > to_details.number {
 			from_branch.push(current_from);
+			is_from_route_finalized = is_from_route_finalized || from_details.is_finalized;
 			current_from = from_details.parent.clone();
 			from_details = self.block_details(&from_details.parent)?;
-			is_from_route_finalized = is_from_route_finalized || from_details.is_finalized;
 		}
 
 		while to_details.number > from_details.number {
@@ -742,9 +765,9 @@ impl BlockChain {
 		// move to shared parent
 		while current_from != current_to {
 			from_branch.push(current_from);
+			is_from_route_finalized = is_from_route_finalized || from_details.is_finalized;
 			current_from = from_details.parent.clone();
 			from_details = self.block_details(&from_details.parent)?;
-			is_from_route_finalized = is_from_route_finalized || from_details.is_finalized;
 
 			to_branch.push(current_to);
 			current_to = to_details.parent.clone();
@@ -791,7 +814,7 @@ impl BlockChain {
 		batch.put(db::COL_HEADERS, &hash, &compressed_header);
 		batch.put(db::COL_BODIES, &hash, &compressed_body);
 
-		let maybe_parent = self.block_details(&block_parent_hash);
+		let maybe_parent = self.uncommitted_block_details(&block_parent_hash);
 
 		if let Some(parent_details) = maybe_parent {
 			// parent known to be in chain.
@@ -854,12 +877,31 @@ impl BlockChain {
 		}
 	}
 
-	/// clears all caches for testing purposes
+	/// clears all caches, re-loads best block from disk for testing purposes
 	pub fn clear_cache(&self) {
 		self.block_bodies.write().clear();
 		self.block_details.write().clear();
 		self.block_hashes.write().clear();
 		self.block_headers.write().clear();
+		// Fetch best block details from disk
+		let best_block_hash = self.db.key_value().get(db::COL_EXTRA, b"best")
+			.expect("Low-level database error when fetching 'best' block. Some issue with disk?")
+			.as_ref()
+			.map(|r| H256::from_slice(r))
+			.unwrap();
+		let best_block_total_difficulty = self.block_details(&best_block_hash)
+			.expect("Best block is from a known block hash; a known block hash always comes with a known block detail; qed")
+			.total_difficulty;
+		let best_block_rlp = self.block(&best_block_hash)
+			.expect("Best block is from a known block hash; qed");
+
+		// and write them to the cache
+		let mut best_block = self.best_block.write();
+		*best_block = BestBlock {
+			total_difficulty: best_block_total_difficulty,
+			header: best_block_rlp.decode_header(),
+			block: best_block_rlp,
+		};
 	}
 
 	/// Update the best ancient block to the given hash, after checking that
@@ -1029,7 +1071,7 @@ impl BlockChain {
 	///
 	/// Used in snapshots to glue the chunks together at the end.
 	pub fn add_child(&self, batch: &mut DBTransaction, block_hash: H256, child_hash: H256) {
-		let mut parent_details = self.block_details(&block_hash)
+		let mut parent_details = self.uncommitted_block_details(&block_hash)
 			.unwrap_or_else(|| panic!("Invalid block hash: {:?}", block_hash));
 
 		parent_details.children.push(child_hash);
@@ -1136,7 +1178,7 @@ impl BlockChain {
 	/// Mark a block to be considered finalized. Returns `Some(())` if the operation succeeds, and `None` if the block
 	/// hash is not found.
 	pub fn mark_finalized(&self, batch: &mut DBTransaction, block_hash: H256) -> Option<()> {
-		let mut block_details = self.block_details(&block_hash)?;
+		let mut block_details = self.uncommitted_block_details(&block_hash)?;
 		block_details.is_finalized = true;
 
 		self.update_block_details(batch, block_hash, block_details);
@@ -1329,7 +1371,7 @@ impl BlockChain {
 	/// Uses the given parent details or attempts to load them from the database.
 	fn prepare_block_details_update(&self, parent_hash: H256, info: &BlockInfo, is_finalized: bool) -> HashMap<H256, BlockDetails> {
 		// update parent
-		let mut parent_details = self.block_details(&parent_hash).unwrap_or_else(|| panic!("Invalid parent hash: {:?}", parent_hash));
+		let mut parent_details = self.uncommitted_block_details(&parent_hash).unwrap_or_else(|| panic!("Invalid parent hash: {:?}", parent_hash));
 		parent_details.children.push(info.hash);
 
 		// create current block details.
@@ -1634,7 +1676,7 @@ mod tests {
 		let fork_choice = {
 			let header = block.header_view();
 			let parent_hash = header.parent_hash();
-			let parent_details = bc.block_details(&parent_hash).unwrap_or_else(|| panic!("Invalid parent hash: {:?}", parent_hash));
+			let parent_details = bc.uncommitted_block_details(&parent_hash).unwrap_or_else(|| panic!("Invalid parent hash: {:?}", parent_hash));
 			let block_total_difficulty = parent_details.total_difficulty + header.difficulty();
 			if block_total_difficulty > bc.best_block_total_difficulty() {
 				common_types::engines::ForkChoice::New
@@ -2489,6 +2531,76 @@ mod tests {
 		// non-canonical fork blocks should all have genesis transition
 		for fork_hash in fork_hashes {
 			assert_eq!(bc.epoch_transition_for(fork_hash).unwrap().block_number, 0);
+		}
+	}
+
+	#[test]
+	fn tree_rout_with_finalization() {
+		let genesis = BlockBuilder::genesis();
+		let a = genesis.add_block();
+		// First branch
+		let a1 = a.add_block_with_random_transactions();
+		let a2 = a1.add_block_with_random_transactions();
+		let a3 = a2.add_block_with_random_transactions();
+		// Second branch
+		let b1 = a.add_block_with_random_transactions();
+		let b2 = b1.add_block_with_random_transactions();
+
+		let a_hash = a.last().hash();
+		let a1_hash = a1.last().hash();
+		let a2_hash = a2.last().hash();
+		let a3_hash = a3.last().hash();
+		let b2_hash = b2.last().hash();
+
+		let bootstrap_chain = |blocks: Vec<&BlockBuilder>| {
+			let db = new_db();
+			let bc = new_chain(genesis.last().encoded(), db.clone());
+			let mut batch = db.key_value().transaction();
+			for block in blocks {
+				insert_block_batch(&mut batch, &bc, block.last().encoded(), vec![]);
+				bc.commit();
+			}
+			db.key_value().write(batch).unwrap();
+			(db, bc)
+		};
+
+		let mark_finalized = |block_hash: H256, db: &Arc<dyn BlockChainDB>, bc: &BlockChain| {
+			let mut batch = db.key_value().transaction();
+			bc.mark_finalized(&mut batch, block_hash).unwrap();
+			bc.commit();
+			db.key_value().write(batch).unwrap();
+		};
+
+		// Case 1: fork, with finalized common ancestor
+		{
+			let (db, bc) = bootstrap_chain(vec![&a, &a1, &a2, &a3, &b1, &b2]);
+			assert_eq!(bc.best_block_hash(), a3_hash);
+			assert_eq!(bc.block_hash(2).unwrap(), a1_hash);
+
+			mark_finalized(a_hash, &db, &bc);
+			assert!(!bc.tree_route(a3_hash, b2_hash).unwrap().is_from_route_finalized);
+			assert!(!bc.tree_route(b2_hash, a3_hash).unwrap().is_from_route_finalized);
+		}
+
+		// Case 2: fork with a finalized block on a branch
+		{
+			let (db, bc) = bootstrap_chain(vec![&a, &a1, &a2, &a3, &b1, &b2]);
+			assert_eq!(bc.best_block_hash(), a3_hash);
+			assert_eq!(bc.block_hash(2).unwrap(), a1_hash);
+
+			mark_finalized(a2_hash, &db, &bc);
+			assert!(bc.tree_route(a3_hash, b2_hash).unwrap().is_from_route_finalized);
+			assert!(!bc.tree_route(b2_hash, a3_hash).unwrap().is_from_route_finalized);
+		}
+
+		// Case 3: no-fork, with a finalized block
+		{
+			let (db, bc) = bootstrap_chain(vec![&a, &a1, &a2]);
+			assert_eq!(bc.best_block_hash(), a2_hash);
+
+			mark_finalized(a1_hash, &db, &bc);
+			assert!(!bc.tree_route(a1_hash, a2_hash).unwrap().is_from_route_finalized);
+			assert!(!bc.tree_route(a2_hash, a1_hash).unwrap().is_from_route_finalized);
 		}
 	}
 }

@@ -1,5 +1,5 @@
 [package]
-description = "Parity Miner interface."
+description = "Parity Ethereum Miner Interface."
 name = "ethcore-miner"
 homepage = "http://parity.io"
 license = "GPL-3.0"
@@ -11,7 +11,7 @@ authors = ["Parity Technologies <admin@parity.io>"]
 ethash = { path = "../ethash", optional = true }
 fetch = { path = "../util/fetch", optional = true }
 hyper = { version = "0.12", optional = true }
-url = { version = "1", optional = true }
+url = { version = "2", optional = true }
 
 # Miner
 ansi_term = "0.10"
@@ -32,7 +32,7 @@ parking_lot = "0.7"
 price-info = { path = "./price-info", optional = true }
 rlp = { version = "0.3.0", features = ["ethereum"] }
 trace-time = "0.1"
-transaction-pool = "2.0"
+transaction-pool = "2.0.1"
 
 [dev-dependencies]
 env_logger = "0.5"
